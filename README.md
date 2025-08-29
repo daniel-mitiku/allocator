@@ -233,7 +233,7 @@ A comprehensive university scheduling system that enables multiple colleges to m
 
 Your project is live at: **[https://vercel.com/daniel-mitikus-projects/v0-allocator](https://vercel.com/daniel-mitikus-projects/v0-allocator)**
 
-Continue building on: **[https://v0.app/chat/projects/alazMx80hSV](https://v0.app/chat/projects/alazMx80hSV)**
+Continue building on: **[https://v0.app/chat/allocator-rQLhGKnQ6w9](https://v0.app/chat/allocator-rQLhGKnQ6w9)**
 
 ## Technology Stack
 
