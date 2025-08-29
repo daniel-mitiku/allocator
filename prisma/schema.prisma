@@ -24,9 +24,9 @@ enum Role {
 }
 
 enum SystemRole {
-  SUPER_ADMIN    // Can manage all colleges and see everything
-  COLLEGE_ADMIN  // Can manage only their assigned college resources
-  PERSONNEL      // Regular staff/faculty member
+  SUPER_ADMIN // Can manage all colleges and see everything
+  COLLEGE_ADMIN // Can manage only their assigned college resources
+  PERSONNEL // Regular staff/faculty member
 }
 
 enum RoomType {
@@ -79,13 +79,24 @@ type AvailabilityBlock {
   endTime   String // "17:00"
 }
 
+// --- ADD THIS NEW MODEL ---
+model AvailabilityTemplate {
+  id                 String              @id @default(auto()) @map("_id") @db.ObjectId
+  name               String              @unique
+  description        String?
+  college            College             @relation(fields: [collegeId], references: [id])
+  collegeId          String              @db.ObjectId
+  availabilityBlocks AvailabilityBlock[]
+  scheduleInstances  ScheduleInstance[]
+}
+
 type AssignmentRecord {
-  personnelId String
-  courseId    String
+  personnelId        String
+  courseId           String
   activityTemplateId String
   scheduleInstanceId String
-  assignedAt DateTime
-  performance String? // Optional performance notes
+  assignedAt         DateTime
+  performance        String? // Optional performance notes
 }
 
 // ---------------------------------------------------
@@ -93,23 +104,25 @@ type AssignmentRecord {
 // ---------------------------------------------------
 
 model College {
-  id          String @id @default(auto()) @map("_id") @db.ObjectId
-  name        String @unique // "College of Engineering"
-  code        String @unique // "COE"
+  id          String  @id @default(auto()) @map("_id") @db.ObjectId
+  name        String  @unique // "College of Engineering"
+  code        String  @unique // "COE"
   description String?
   isActive    Boolean @default(true)
-  
+
   // College resources
-  users     User[]
-  rooms     Room[]
-  courses   Course[]
-  programs  Program[]
-  scheduleInstances ScheduleInstance[]
+  users                 User[]
+  rooms                 Room[]
+  courses               Course[]
+  programs              Program[]
+  scheduleInstances     ScheduleInstance[]
   availabilityTemplates AvailabilityTemplate[]
-  
+
+  // assigmentRecord AssignmentRecord[] // I don'
+
   // Historical records for this college
-  assignmentHistory AssignmentRecord[]
-  
+  assignmentHistory AssignmentHistory[] @relation("CollegeHistory")
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
@@ -124,9 +137,9 @@ model User {
   email           String @unique
   preferenceToken String @unique @default(cuid())
 
-  roles Role[]
+  roles      Role[]
   systemRole SystemRole @default(PERSONNEL)
-  
+
   college   College @relation(fields: [collegeId], references: [id])
   collegeId String  @db.ObjectId
 
@@ -144,14 +157,14 @@ model User {
   // --- ADD THESE RELATIONS ---
   accounts Account[]
   sessions Session[]
-  
+
   // Historical assignments for this user
   assignmentHistory AssignmentHistory[] @relation("PersonnelHistory")
 }
 
 model Room {
   id       String   @id @default(auto()) @map("_id") @db.ObjectId
-  name     String   // e.g., "B510 Room 17" - removed unique constraint for multi-college
+  name     String // e.g., "B510 Room 17" - removed unique constraint for multi-college
   building String
   capacity Int
   type     RoomType
@@ -165,7 +178,7 @@ model Room {
   // A room can be part of the pool for many schedules
   scheduledInstanceIds String[]           @db.ObjectId
   scheduledInstances   ScheduleInstance[] @relation(fields: [scheduledInstanceIds], references: [id])
-  
+
   @@unique([name, collegeId])
 }
 
@@ -175,12 +188,12 @@ model Room {
 
 model Program {
   id      String  @id @default(auto()) @map("_id") @db.ObjectId
-  name    String  // "Computer Science - Regular" - removed unique constraint for multi-college
+  name    String // "Computer Science - Regular" - removed unique constraint for multi-college
   batches Batch[]
-  
+
   college   College @relation(fields: [collegeId], references: [id])
   collegeId String  @db.ObjectId
-  
+
   @@unique([name, collegeId])
 }
 
@@ -238,11 +251,11 @@ model Course {
   // A course can be offered in multiple schedule instances
   scheduledInstanceIds String[]           @db.ObjectId
   scheduledInstances   ScheduleInstance[] @relation(fields: [scheduledInstanceIds], references: [id])
-  
-  @@unique([code, collegeId])
-  
+
   // Historical assignments for this course
   assignmentHistory AssignmentHistory[] @relation("CourseHistory")
+
+  @@unique([code, collegeId])
 }
 
 model ActivityTemplate {
@@ -261,7 +274,7 @@ model ActivityTemplate {
 
   // The final scheduled events that are instances of this template
   scheduledEvents ScheduledEvent[]
-  
+
   // Historical assignments for this activity template
   assignmentHistory AssignmentHistory[] @relation("ActivityHistory")
 }
@@ -272,7 +285,7 @@ model ActivityTemplate {
 
 model ScheduleInstance {
   id        String         @id @default(auto()) @map("_id") @db.ObjectId
-  name      String         // "Fall 2025 - CS Year 1" - removed unique constraint for multi-college
+  name      String // "Fall 2025 - CS Year 1" - removed unique constraint for multi-college
   startDate DateTime
   endDate   DateTime
   status    ScheduleStatus @default(DRAFT)
@@ -298,7 +311,7 @@ model ScheduleInstance {
 
   // The final output: all scheduled events for this instance
   scheduledEvents ScheduledEvent[]
-  
+
   // Historical records for this schedule
   assignmentHistory AssignmentHistory[] @relation("ScheduleHistory")
 
@@ -306,7 +319,7 @@ model ScheduleInstance {
   roomStickinessWeight Int? // Optional weight for room stickiness, null if not set
   spacingPreference    SpacingPreference? // Optional spacing preference, null if not set
   timePreferences      ScheduleTimePreference[] // Optional time preferences, stored as a relation
-  
+
   @@unique([name, collegeId])
 }
 
@@ -367,28 +380,27 @@ model ScheduleTimePreference {
   @@unique([scheduleInstanceId, time]) // A schedule instance has a unique rank for a specific time
 }
 
-
 model AssignmentHistory {
   id String @id @default(auto()) @map("_id") @db.ObjectId
-  
+
   personnel   User   @relation("PersonnelHistory", fields: [personnelId], references: [id])
   personnelId String @db.ObjectId
-  
+
   course   Course @relation("CourseHistory", fields: [courseId], references: [id])
   courseId String @db.ObjectId
-  
+
   activityTemplate   ActivityTemplate @relation("ActivityHistory", fields: [activityTemplateId], references: [id])
   activityTemplateId String           @db.ObjectId
-  
+
   scheduleInstance   ScheduleInstance @relation("ScheduleHistory", fields: [scheduleInstanceId], references: [id])
   scheduleInstanceId String           @db.ObjectId
-  
+
   college   College @relation("CollegeHistory", fields: [collegeId], references: [id])
   collegeId String  @db.ObjectId
-  
+
   assignedAt  DateTime @default(now())
   performance String? // Optional performance notes
-  
+
   // Composite index for efficient queries
   @@index([personnelId, courseId])
   @@index([collegeId, assignedAt])
