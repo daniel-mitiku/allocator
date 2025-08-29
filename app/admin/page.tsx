@@ -1,41 +1,35 @@
-import { prisma } from "@/prisma/client";
-import {
-  BookCopy,
-  Calendar as CalendarIcon,
-  Users,
-  Warehouse,
-} from "lucide-react";
-import Link from "next/link";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { ScheduleStatus } from "@prisma/client";
+import type React from "react"
+import { prisma } from "@/prisma/client"
+import { requireAuth } from "@/lib/auth-utils"
+import { redirect } from "next/navigation"
+import { BookCopy, CalendarIcon, Users, Warehouse, Building2 } from "lucide-react"
+import Link from "next/link"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
+import type { ScheduleStatus } from "@prisma/client"
 
-// Data fetching function for the dashboard stats
-async function getDashboardStats() {
-  const [courseCount, personnelCount, roomCount, scheduleCount] =
-    await prisma.$transaction([
-      prisma.course.count(),
-      prisma.user.count(),
-      prisma.room.count(),
-      prisma.scheduleInstance.count({
-        where: { NOT: { status: "COMPLETED" } },
-      }),
-    ]);
+async function getDashboardStats(collegeId: string, isSuperAdmin: boolean) {
+  const whereClause = isSuperAdmin ? {} : { collegeId }
+
+  const [courseCount, personnelCount, roomCount, scheduleCount] = await prisma.$transaction([
+    prisma.course.count({ where: whereClause }),
+    prisma.user.count({ where: whereClause }),
+    prisma.room.count({ where: whereClause }),
+    prisma.scheduleInstance.count({
+      where: { ...whereClause, NOT: { status: "COMPLETED" } },
+    }),
+  ])
 
   const activeSchedules = await prisma.scheduleInstance.findMany({
-    where: { NOT: { status: "COMPLETED" } },
+    where: { ...whereClause, NOT: { status: "COMPLETED" } },
+    include: {
+      college: true,
+    },
     orderBy: { startDate: "asc" },
     take: 5,
-  });
+  })
 
   return {
     courseCount,
@@ -43,24 +37,60 @@ async function getDashboardStats() {
     roomCount,
     scheduleCount,
     activeSchedules,
-  };
+  }
 }
 
-export default async function AdminDashboardPage() {
-  const {
-    courseCount,
-    personnelCount,
-    roomCount,
-    scheduleCount,
-    activeSchedules,
-  } = await getDashboardStats();
+export default async function AdminDashboardPage({
+  searchParams,
+}: {
+  searchParams: { college?: string }
+}) {
+  const user = await requireAuth()
+
+  let targetCollegeId = user.collegeId
+  let college = user.college
+
+  // Super admins can view any college via query params
+  if (user.systemRole === "SUPER_ADMIN" && searchParams.college) {
+    targetCollegeId = searchParams.college
+    const targetCollege = await prisma.college.findUnique({
+      where: { id: searchParams.college },
+    })
+    if (!targetCollege) {
+      redirect("/admin")
+    }
+    college = targetCollege
+  }
+
+  // Regular users can only access their own college
+  if (user.systemRole !== "SUPER_ADMIN" && searchParams.college && searchParams.college !== user.collegeId) {
+    redirect("/unauthorized")
+  }
+
+  const { courseCount, personnelCount, roomCount, scheduleCount, activeSchedules } = await getDashboardStats(
+    targetCollegeId,
+    user.systemRole === "SUPER_ADMIN",
+  )
 
   return (
     <div className="flex flex-col gap-6">
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-semibold md:text-3xl">Dashboard</h1>
+        <div>
+          <h1 className="text-2xl font-semibold md:text-3xl">
+            {user.systemRole === "SUPER_ADMIN" ? "College Dashboard" : "Dashboard"}
+          </h1>
+          <div className="flex items-center gap-2 text-muted-foreground">
+            <Building2 className="h-4 w-4" />
+            <span>
+              {college.name} ({college.code})
+            </span>
+            {user.systemRole === "SUPER_ADMIN" && <Badge variant="outline">Super Admin View</Badge>}
+          </div>
+        </div>
         <Button asChild>
-          <Link href="/admin/schedules/create">Create New Schedule</Link>
+          <Link href={`/admin/schedules/create${searchParams.college ? `?college=${searchParams.college}` : ""}`}>
+            Create New Schedule
+          </Link>
         </Button>
       </div>
 
@@ -100,6 +130,7 @@ export default async function AdminDashboardPage() {
                 <TableHead>Name</TableHead>
                 <TableHead>Start Date</TableHead>
                 <TableHead>Status</TableHead>
+                {user.systemRole === "SUPER_ADMIN" && <TableHead>College</TableHead>}
                 <TableHead>Actions</TableHead>
               </TableRow>
             </TableHeader>
@@ -107,20 +138,21 @@ export default async function AdminDashboardPage() {
               {activeSchedules.length > 0 ? (
                 activeSchedules.map((schedule) => (
                   <TableRow key={schedule.id}>
-                    <TableCell className="font-medium">
-                      {schedule.name}
-                    </TableCell>
+                    <TableCell className="font-medium">{schedule.name}</TableCell>
+                    <TableCell>{new Date(schedule.startDate).toLocaleDateString()}</TableCell>
                     <TableCell>
-                      {new Date(schedule.startDate).toLocaleDateString()}
+                      <Badge variant={getBadgeVariant(schedule.status)}>{schedule.status}</Badge>
                     </TableCell>
-                    <TableCell>
-                      <Badge variant={getBadgeVariant(schedule.status)}>
-                        {schedule.status}
-                      </Badge>
-                    </TableCell>
+                    {user.systemRole === "SUPER_ADMIN" && (
+                      <TableCell>
+                        <Badge variant="outline">{schedule.college.code}</Badge>
+                      </TableCell>
+                    )}
                     <TableCell>
                       <Button asChild variant="outline" size="sm">
-                        <Link href={`/admin/schedules/${schedule.id}`}>
+                        <Link
+                          href={`/admin/schedules/${schedule.id}${searchParams.college ? `?college=${searchParams.college}` : ""}`}
+                        >
                           Manage
                         </Link>
                       </Button>
@@ -129,7 +161,7 @@ export default async function AdminDashboardPage() {
                 ))
               ) : (
                 <TableRow>
-                  <TableCell colSpan={4} className="text-center">
+                  <TableCell colSpan={user.systemRole === "SUPER_ADMIN" ? 5 : 4} className="text-center">
                     No active schedules found.
                   </TableCell>
                 </TableRow>
@@ -139,7 +171,7 @@ export default async function AdminDashboardPage() {
         </CardContent>
       </Card>
     </div>
-  );
+  )
 }
 
 // Reusable Stat Card Component
@@ -148,9 +180,9 @@ function StatCard({
   value,
   icon,
 }: {
-  title: string;
-  value: number | string;
-  icon: React.ReactNode;
+  title: string
+  value: number | string
+  icon: React.ReactNode
 }) {
   return (
     <Card>
@@ -162,19 +194,19 @@ function StatCard({
         <div className="text-2xl font-bold">{value}</div>
       </CardContent>
     </Card>
-  );
+  )
 }
 
 // Helper to style status badges
 function getBadgeVariant(status: ScheduleStatus) {
   switch (status) {
     case "DRAFT":
-      return "secondary";
+      return "secondary"
     case "LOCKED":
-      return "default";
+      return "default"
     case "COMPLETED":
-      return "outline";
+      return "outline"
     default:
-      return "secondary";
+      return "secondary"
   }
 }
